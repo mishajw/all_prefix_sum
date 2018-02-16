@@ -43,17 +43,17 @@ void fill_random_array(num_t *array, size_t length) {
 // Print how two arrays `a` and `b` differ, up to some length `length`
 // Returns true if the arrays are equal, and false otherwise
 bool print_array_equality(num_t *a, num_t *b, size_t length) {
-  bool found_difference = false;
+  bool are_equal = true;
 
   for (size_t i = 0; i < length; i++) {
     if (a[i] != b[i]) {
-      found_difference = true;
+      are_equal = false;
       printf(
           "Arrays differ at index %ld, with values %d and %d\n", i, a[i], b[i]);
     }
   }
 
-  return found_difference;
+  return are_equal;
 }
 
 int main() {
@@ -78,6 +78,10 @@ int main() {
 
   // Compare solutions
   bool are_equal = print_array_equality(truth_output, output, ARRAY_SIZE);
+
+  if (are_equal) {
+    printf("Success!\n");
+  }
 
   return (int)are_equal;
 }
