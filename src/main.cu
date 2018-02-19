@@ -172,6 +172,6 @@ int main() {
     printf("Success!\n");
   }
 
-  return (int)are_equal;
+  return are_equal ? 0 : 1;
 }
 
