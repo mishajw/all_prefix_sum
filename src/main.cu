@@ -25,38 +25,55 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
   __shared__ num_t s_temp[BLOCK_SIZE * 2];
   size_t global_index = GLOBAL_INDEX;
   size_t index = threadIdx.x;
+  size_t offset = 1;
 
   // Copy global memory into shared
-  if (global_index < length) {
-    s_temp[index] = g_input[global_index];
+  if (global_index * 2 < length) {
+    s_temp[index * 2] = g_input[global_index * 2];
+  }
+  if (global_index * 2 + 1 < length) {
+    s_temp[index * 2 + 1] = g_input[global_index * 2 + 1];
   }
 
   // Up sweep
-  for (size_t stride = 1; stride < length; stride *= 2) {
+  for (size_t d = BLOCK_SIZE; d > 0; d /= 2) {
     __syncthreads();
-    if ((index + 1) % (stride * 2) == 0) {
-      s_temp[index] += s_temp[index - stride];
+
+    if (global_index < d) {
+      size_t a = offset * (2 * index + 1) - 1;
+      size_t b = offset * (2 * index + 2) - 1;
+      s_temp[b] += s_temp[a];
     }
+
+    offset *= 2;
   }
 
   // Reset last element
   if (index == 0) {
-    s_temp[BLOCK_SIZE - 1] = 0;
+    s_temp[BLOCK_SIZE * 2 - 1] = 0;
   }
 
   // Down sweep
-  for (size_t stride = BLOCK_SIZE / 2; stride > 0; stride /= 2) {
+  for (size_t d = 1; d < BLOCK_SIZE * 2; d *= 2) {
+    offset /= 2;
     __syncthreads();
-    if ((index + 1) % (stride * 2) == 0) {
-      num_t old_index_value = s_temp[index];
-      s_temp[index] += s_temp[index - stride];
-      s_temp[index - stride] = old_index_value;
+    if (global_index < d) {
+      size_t a = offset * (2 * index + 1) - 1;
+      size_t b = offset * (2 * index + 2) - 1;
+      num_t t = s_temp[a];
+      s_temp[a] = s_temp[b];
+      s_temp[b] += t;
     }
   }
 
+  __syncthreads();
+
   // Copy results into global memory
-  if (global_index < length) {
-    g_output[global_index] = s_temp[index];
+  if (global_index * 2 < length) {
+    g_output[global_index * 2] = s_temp[index * 2];
+  }
+  if (global_index * 2 + 1 < length) {
+    g_output[global_index * 2 + 1] = s_temp[index * 2 + 1];
   }
 }
 
@@ -81,11 +98,14 @@ void scan(const num_t *input, num_t *output, size_t length) {
       cudaMalloc((void **)&g_output, array_size),
       "Couldn't allocate memory for output on device");
 
-  if (length < BLOCK_SIZE) {
+  if (length <= BLOCK_SIZE) {
     blelloch_block_scan<<<1, BLOCK_SIZE>>>(g_input, g_output, length);
   } else {
     // TODO: Implement
   }
+
+  // TODO: Check if necessary
+  cudaDeviceSynchronize();
 
   // Copy results to host
   CUDA_ERROR(
