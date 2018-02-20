@@ -76,6 +76,11 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
   }
 }
 
+// Copy the _inclusive_ ends of block scans into an array
+// Must be inclusive, as they are added to all array elements afterwards. But
+// to make it inclusive, we need the original array
+// TODO: Each thread makes three global memory accesses - is there any way we
+// can avoid this?
 __global__
 void copy_block_scan_ends(
     const num_t *original_input,
@@ -85,18 +90,23 @@ void copy_block_scan_ends(
 
   size_t global_index = GLOBAL_INDEX;
 
+  // Each thread will process two items of data so that we can process more
+  // before needing a level (n + 1) scan
+  // TODO: Is this the correct decision? We sacrifice some parallelism for not
+  // needing level 3 block scan, but why only 2x and not more?
+
   size_t i1 = (global_index + 1) * BLOCK_SIZE * 2 - 1;
   if (i1 < length) {
     g_output[global_index] = g_input[i1] + original_input[i1];
   }
 
-  // TODO: Test
   size_t i2 = (BLOCK_SIZE * BLOCK_SIZE * 2) + i1;
   if (i2 < length) {
     g_output[global_index + BLOCK_SIZE] = g_input[i2] + original_input[i2];
   }
 }
 
+// Add the block scan ends back onto the original array
 __global__
 void add_block_scan_ends(
     num_t *g_input, const num_t *g_block_ends, size_t length) {
