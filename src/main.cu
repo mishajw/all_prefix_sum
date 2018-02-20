@@ -1,9 +1,8 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-#define CUDA_ERROR(statement, message) \
+#define CUDA_ERROR(err, message) \
   do { \
-    cudaError_t err = statement; \
     if (err != cudaSuccess) { \
       fprintf(stderr, "%s: %s\n", message, cudaGetErrorString(err)); \
       exit(1); \
@@ -81,25 +80,24 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
 // parallel on a GPU
 // Assumes both `input` and `output` are allocated with size `length`
 void scan(const num_t *input, num_t *output, size_t length) {
+  cudaError_t err;
   size_t array_size = sizeof(num_t) * length;
 
   // Set up input on device
   num_t *g_input = NULL;
-  CUDA_ERROR(
-      cudaMalloc((void **)&g_input, array_size),
-      "Couldn't allocate memory for input on device");
-  CUDA_ERROR(
-      cudaMemcpy(g_input, input, array_size, cudaMemcpyHostToDevice),
-      "Couldn't copy input to device");
+  err = cudaMalloc((void **)&g_input, array_size);
+  CUDA_ERROR(err, "Couldn't allocate memory for input on device");
+  err = cudaMemcpy(g_input, input, array_size, cudaMemcpyHostToDevice);
+  CUDA_ERROR(err, "Couldn't copy input to device");
 
   // Setup output on device
   num_t *g_output = NULL;
-  CUDA_ERROR(
-      cudaMalloc((void **)&g_output, array_size),
-      "Couldn't allocate memory for output on device");
+  err = cudaMalloc((void **)&g_output, array_size);
+  CUDA_ERROR(err, "Couldn't allocate memory for output on device");
 
   if (length <= BLOCK_SIZE) {
     blelloch_block_scan<<<1, BLOCK_SIZE>>>(g_input, g_output, length);
+    CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
   } else {
     // TODO: Implement
   }
@@ -108,9 +106,8 @@ void scan(const num_t *input, num_t *output, size_t length) {
   cudaDeviceSynchronize();
 
   // Copy results to host
-  CUDA_ERROR(
-      cudaMemcpy(output, g_output, array_size, cudaMemcpyDeviceToHost),
-      "Couldn't copy output to host");
+  err = cudaMemcpy(output, g_output, array_size, cudaMemcpyDeviceToHost);
+  CUDA_ERROR(err, "Couldn't copy output to host");
 }
 
 // Performs all prefix sum on `input` and stores the result in `output`
