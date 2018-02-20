@@ -76,6 +76,37 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
   }
 }
 
+__global__
+void copy_block_scan_ends(
+    const num_t *original_input,
+    const num_t *g_input,
+    num_t *g_output,
+    const size_t length) {
+
+  size_t global_index = GLOBAL_INDEX;
+
+  size_t i1 = (global_index + 1) * BLOCK_SIZE * 2 - 1;
+  if (i1 < length) {
+    g_output[global_index] = g_input[i1] + original_input[i1];
+  }
+
+  // TODO: Test
+  size_t i2 = (BLOCK_SIZE * BLOCK_SIZE * 2) + i1;
+  if (i2 < length) {
+    g_output[global_index + BLOCK_SIZE] = g_input[i2] + original_input[i2];
+  }
+}
+
+__global__
+void add_block_scan_ends(
+    num_t *g_input, const num_t *g_block_ends, size_t length) {
+
+  size_t global_index = GLOBAL_INDEX;
+  if (global_index < length) {
+    g_input[global_index] += g_block_ends[global_index / (BLOCK_SIZE * 2)];
+  }
+}
+
 // Performs all prefix sum on `input` and stores the result in `output` in
 // parallel on a GPU
 // Assumes both `input` and `output` are allocated with size `length`
@@ -95,9 +126,40 @@ void scan(const num_t *input, num_t *output, size_t length) {
   err = cudaMalloc((void **)&g_output, array_size);
   CUDA_ERROR(err, "Couldn't allocate memory for output on device");
 
-  if (length <= BLOCK_SIZE) {
+  if (length <= BLOCK_SIZE * 2) {
     blelloch_block_scan<<<1, BLOCK_SIZE>>>(g_input, g_output, length);
     CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
+  } else if (length <= BLOCK_SIZE * BLOCK_SIZE * 4) {
+    // Perform block scan on individual blocks of the input
+    size_t num_blocks = 1 + (length - 1) / BLOCK_SIZE;
+    blelloch_block_scan<<<num_blocks, BLOCK_SIZE>>>(g_input, g_output, length);
+    cudaDeviceSynchronize();
+    CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
+
+    // Create array for block ends
+    num_t *g_block_scan_ends = NULL;
+    CUDA_ERROR(
+        cudaMalloc((void**)&g_block_scan_ends, sizeof(num_t) * num_blocks),
+        "Couldn't allocated memory for scan_ends");
+
+    // Fill block scan ends
+    size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
+    copy_block_scan_ends<<<ends_num_blocks, BLOCK_SIZE>>>(
+        g_input, g_output, g_block_scan_ends, length);
+    cudaDeviceSynchronize();
+    CUDA_ERROR(cudaGetLastError(), "Couldn't get block scan ends");
+
+    // Perform prefix sum of block scan ends
+    blelloch_block_scan<<<ends_num_blocks, BLOCK_SIZE>>>(
+        g_block_scan_ends, g_block_scan_ends, num_blocks);
+    cudaDeviceSynchronize();
+    CUDA_ERROR(
+        cudaGetLastError(), "Couldn't perform block scan on block scan ends");
+
+    // Add the block ends to the output
+    add_block_scan_ends<<<num_blocks, BLOCK_SIZE>>>(
+        g_output, g_block_scan_ends, length);
+    CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends");
   } else {
     // TODO: Implement
   }
