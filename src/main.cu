@@ -143,7 +143,6 @@ void scan(const num_t *input, num_t *output, size_t length) {
     // Perform block scan on individual blocks of the input
     size_t num_blocks = 1 + (length - 1) / BLOCK_SIZE;
     blelloch_block_scan<<<num_blocks, BLOCK_SIZE>>>(g_input, g_output, length);
-    cudaDeviceSynchronize();
     CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
 
     // Create array for block ends
@@ -156,13 +155,11 @@ void scan(const num_t *input, num_t *output, size_t length) {
     size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
     copy_block_scan_ends<<<ends_num_blocks, BLOCK_SIZE>>>(
         g_input, g_output, g_block_scan_ends, length);
-    cudaDeviceSynchronize();
     CUDA_ERROR(cudaGetLastError(), "Couldn't get block scan ends");
 
     // Perform prefix sum of block scan ends
     blelloch_block_scan<<<ends_num_blocks, BLOCK_SIZE>>>(
         g_block_scan_ends, g_block_scan_ends, num_blocks);
-    cudaDeviceSynchronize();
     CUDA_ERROR(
         cudaGetLastError(), "Couldn't perform block scan on block scan ends");
 
@@ -173,9 +170,6 @@ void scan(const num_t *input, num_t *output, size_t length) {
   } else {
     // TODO: Implement
   }
-
-  // TODO: Check if necessary
-  cudaDeviceSynchronize();
 
   // Copy results to host
   err = cudaMemcpy(output, g_output, array_size, cudaMemcpyDeviceToHost);
