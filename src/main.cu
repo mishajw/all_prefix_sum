@@ -38,7 +38,7 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
   for (size_t d = BLOCK_SIZE; d > 0; d /= 2) {
     __syncthreads();
 
-    if (global_index < d) {
+    if (index < d) {
       size_t a = offset * (2 * index + 1) - 1;
       size_t b = offset * (2 * index + 2) - 1;
       s_temp[b] += s_temp[a];
@@ -56,7 +56,7 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
   for (size_t d = 1; d < BLOCK_SIZE * 2; d *= 2) {
     offset /= 2;
     __syncthreads();
-    if (global_index < d) {
+    if (index < d) {
       size_t a = offset * (2 * index + 1) - 1;
       size_t b = offset * (2 * index + 2) - 1;
       num_t t = s_temp[a];
