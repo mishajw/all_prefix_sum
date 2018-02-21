@@ -6,7 +6,7 @@ srcs = $(wildcard $(src_dir)/*.cu)
 executable_path = $(bin_dir)/$(project)
 
 nvcc = nvcc
-nvcc_flags = -I/usr/include/cuda
+nvcc_flags = -I${CUDA_HOME}/include -I${CUDA_HOME}/samples/common/inc
 
 remote_host ?= cca-lg04-072
 remote_path ?= ~/src/all_prefix_sum
@@ -28,7 +28,10 @@ remote-build: remote-deploy
 	ssh ${remote_host} "cd $(remote_path) && $(MAKE) build"
 
 remote-run: remote-deploy
-	ssh ${remote_host} "cd $(remote_path) && $(MAKE) args=$(args) run"
+	ssh ${remote_host} " \
+		module load cuda && \
+		cd $(remote_path) && \
+		$(MAKE) args=$(args) run"
 
 remote-deploy:
 	rsync -ra --exclude "*.git" . $(remote_host):$(remote_path)

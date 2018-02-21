@@ -1,6 +1,10 @@
 #include <stdio.h>
 #include <inttypes.h>
 
+#include <cuda_runtime.h>
+#include <helper_cuda.h>
+#include <helper_functions.h>
+
 #define CUDA_ERROR(err, message) \
   do { \
     cudaError_t err2 = err; \
@@ -231,13 +235,29 @@ int main() {
   // Set up the output for the parallel function
   num_t *output = (num_t *)malloc(sizeof(num_t) * ARRAY_SIZE);
 
+  // Start timer for sequential scan
+  StopWatchInterface *sequential_timer = NULL;
+  sdkCreateTimer(&sequential_timer);
+  sdkStartTimer(&sequential_timer);
+
   // Run the sequential scan
-  // TODO: Time this operation
   sequential_scan(input, truth_output, ARRAY_SIZE);
 
+  // Stop timers for sequential scan
+  sdkStopTimer(&sequential_timer);
+  double sequential_time_elapsed_ms = sdkGetTimerValue(&sequential_timer);
+
+  // Start timer for parallel scan
+  StopWatchInterface *parallel_timer = NULL;
+  sdkCreateTimer(&parallel_timer);
+  sdkStartTimer(&parallel_timer);
+
   // Run the parallel scan
-  // TODO: Time this operation
   scan(input, output, ARRAY_SIZE);
+
+  // Stop timers for parallel scan
+  sdkStopTimer(&parallel_timer);
+  double parallel_time_elapsed_ms = sdkGetTimerValue(&parallel_timer);
 
   // Compare solutions
   bool are_equal = print_array_equality(truth_output, output, ARRAY_SIZE);
@@ -245,6 +265,14 @@ int main() {
   if (are_equal) {
     printf("Success!\n");
   }
+
+  printf("Sequential time: %f ms\n", sequential_time_elapsed_ms);
+  printf("Parallel time: %f ms\n", parallel_time_elapsed_ms);
+  printf(
+      "Speed up: %f%\n",
+      ((parallel_time_elapsed_ms - sequential_time_elapsed_ms)
+       / (sequential_time_elapsed_ms))
+      * 100);
 
   free(input);
   free(truth_output);
