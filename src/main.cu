@@ -24,8 +24,10 @@ static const size_t ARRAY_SIZE = 1000;
 typedef int32_t num_t;
 
 // Performs exclusive Blelloch scan on a block level
+// Also stores the sum of a total block in the `g_block_ends`
 __global__
-void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
+void blelloch_block_scan(
+    const num_t *g_input, num_t *g_output, num_t *g_block_ends, size_t length) {
   __shared__ num_t s_temp[BLOCK_SIZE * 2];
   size_t global_index = GLOBAL_INDEX;
   size_t index = threadIdx.x;
@@ -54,6 +56,11 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
 
   // Reset last element
   if (index == 0) {
+    // Save the block end
+    if (g_block_ends != NULL) {
+      g_block_ends[global_index / BLOCK_SIZE] = s_temp[BLOCK_SIZE * 2 - 1];
+    }
+
     s_temp[BLOCK_SIZE * 2 - 1] = 0;
   }
 
@@ -78,36 +85,6 @@ void blelloch_block_scan(const num_t *g_input, num_t *g_output, size_t length) {
   }
   if (global_index * 2 + 1 < length) {
     g_output[global_index * 2 + 1] = s_temp[index * 2 + 1];
-  }
-}
-
-// Copy the _inclusive_ ends of block scans into an array
-// Must be inclusive, as they are added to all array elements afterwards. But
-// to make it inclusive, we need the original array
-// TODO: Each thread makes three global memory accesses - is there any way we
-// can avoid this?
-__global__
-void copy_block_scan_ends(
-    const num_t *original_input,
-    const num_t *g_input,
-    num_t *g_output,
-    const size_t length) {
-
-  size_t global_index = GLOBAL_INDEX;
-
-  // Each thread will process two items of data so that we can process more
-  // before needing a level (n + 1) scan
-  // TODO: Is this the correct decision? We sacrifice some parallelism for not
-  // needing level 3 block scan, but why only 2x and not more?
-
-  size_t i1 = (global_index + 1) * BLOCK_SIZE * 2 - 1;
-  if (i1 < length) {
-    g_output[global_index] = g_input[i1] + original_input[i1];
-  }
-
-  size_t i2 = (BLOCK_SIZE * BLOCK_SIZE * 2) + i1;
-  if (i2 < length) {
-    g_output[global_index + BLOCK_SIZE] = g_input[i2] + original_input[i2];
   }
 }
 
@@ -149,39 +126,37 @@ double scan(const num_t *input, num_t *output, size_t length) {
   cudaEventRecord(start, 0);
 
   if (length <= BLOCK_SIZE * 2) {
-    blelloch_block_scan<<<1, BLOCK_SIZE>>>(g_input, g_output, length);
+    blelloch_block_scan<<<1, BLOCK_SIZE>>>(g_input, g_output, NULL, length);
     CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
   } else if (length <= BLOCK_SIZE * BLOCK_SIZE * 4) {
-    // Perform block scan on individual blocks of the input
-    size_t num_blocks = 1 + (length - 1) / BLOCK_SIZE;
-    blelloch_block_scan<<<num_blocks, BLOCK_SIZE>>>(g_input, g_output, length);
-    CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
+    size_t num_blocks = 1 + (length - 1) / (BLOCK_SIZE * 2);
 
     // Create array for block ends
-    num_t *g_block_scan_ends = NULL;
-    CUDA_ERROR(
-        cudaMalloc((void**)&g_block_scan_ends, sizeof(num_t) * num_blocks),
-        "Couldn't allocated memory for scan_ends");
+    num_t *g_block_ends = NULL;
+    err = cudaMalloc((void**)&g_block_ends, sizeof(num_t) * num_blocks);
+    CUDA_ERROR(err, "Couldn't allocated memory for scan_ends");
 
-    // Fill block scan ends
-    size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
-    copy_block_scan_ends<<<ends_num_blocks, BLOCK_SIZE>>>(
-        g_input, g_output, g_block_scan_ends, length);
-    CUDA_ERROR(cudaGetLastError(), "Couldn't get block scan ends");
+    // Perform block scan on individual blocks of the input
+    blelloch_block_scan<<<num_blocks, BLOCK_SIZE>>>(
+        g_input, g_output, g_block_ends, length);
+    cudaDeviceSynchronize();
+    CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
 
     // Perform prefix sum of block scan ends
+    size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
     blelloch_block_scan<<<ends_num_blocks, BLOCK_SIZE>>>(
-        g_block_scan_ends, g_block_scan_ends, num_blocks);
+        g_block_ends, g_block_ends, NULL, num_blocks);
+    cudaDeviceSynchronize();
     CUDA_ERROR(
-        cudaGetLastError(), "Couldn't perform block scan on block scan ends");
+        cudaGetLastError(), "Couldn't perform block scan on block ends");
 
     // Add the block ends to the output
-    add_block_scan_ends<<<num_blocks, BLOCK_SIZE>>>(
-        g_output, g_block_scan_ends, length);
+    add_block_scan_ends<<<num_blocks * 2, BLOCK_SIZE>>>(
+        g_output, g_block_ends, length);
     CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends");
 
     // Free device allocated memory
-    err = cudaFree(g_block_scan_ends);
+    err = cudaFree(g_block_ends);
     CUDA_ERROR(err, "Couldn't free block scan ends on host");
   } else {
     // TODO: Implement
