@@ -210,7 +210,7 @@ double scan(const num_t *input, num_t *output, const size_t length) {
         g_block_ends, num_blocks,
         g_block_ends_ends, ends_num_blocks);
   } else {
-    fprintf(stderr, "Couldn't handle array of size %lld\n", length);
+    fprintf(stderr, "Couldn't handle array of size %ld\n", length);
     exit(1);
   }
 
