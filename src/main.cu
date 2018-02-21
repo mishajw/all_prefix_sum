@@ -3,8 +3,9 @@
 
 #define CUDA_ERROR(err, message) \
   do { \
-    if (err != cudaSuccess) { \
-      fprintf(stderr, "%s: %s\n", message, cudaGetErrorString(err)); \
+    cudaError_t err2 = err; \
+    if (err2 != cudaSuccess) { \
+      fprintf(stderr, "%s: %s\n", message, cudaGetErrorString(err2)); \
       exit(1); \
     } \
   } while (0);
