@@ -18,10 +18,19 @@
 
 #define BLOCK_SIZE ((size_t)1024)
 
+// `#define`s for addessing shared memory bank conflicts
+#define NUM_BANKS 32
+#define LOG_NUM_BANKS 5
+
 // The size of the array to test on
 static const size_t ARRAY_SIZE = 10000000;
 
 typedef int32_t num_t;
+
+__device__
+size_t offset_array_index(size_t index) {
+  return index + ((index) >> NUM_BANKS + (index) >> (2 * LOG_NUM_BANKS));
+}
 
 // Performs exclusive Blelloch scan on a block level
 // Also stores the sum of a total block in the `g_block_ends`
@@ -35,10 +44,10 @@ void blelloch_block_scan(
 
   // Copy global memory into shared
   if (global_index * 2 < length) {
-    s_temp[index * 2] = g_input[global_index * 2];
+    s_temp[index * 2] = g_input[offset_array_index(global_index * 2)];
   }
   if (global_index * 2 + 1 < length) {
-    s_temp[index * 2 + 1] = g_input[global_index * 2 + 1];
+    s_temp[index * 2 + 1] = g_input[offset_array_index(global_index * 2 + 1)];
   }
 
   // Up sweep
@@ -48,7 +57,7 @@ void blelloch_block_scan(
     if (index < d) {
       size_t a = offset * (2 * index + 1) - 1;
       size_t b = offset * (2 * index + 2) - 1;
-      s_temp[b] += s_temp[a];
+      s_temp[offset_array_index(b)] += s_temp[offset_array_index(a)];
     }
 
     offset *= 2;
@@ -56,12 +65,13 @@ void blelloch_block_scan(
 
   // Reset last element
   if (index == 0) {
+    size_t i = offset_array_index(BLOCK_SIZE * 2 - 1);
     // Save the block end
     if (g_block_ends != NULL) {
-      g_block_ends[global_index / BLOCK_SIZE] = s_temp[BLOCK_SIZE * 2 - 1];
+      g_block_ends[global_index / BLOCK_SIZE] = s_temp[i];
     }
 
-    s_temp[BLOCK_SIZE * 2 - 1] = 0;
+    s_temp[i] = 0;
   }
 
   // Down sweep
@@ -69,8 +79,8 @@ void blelloch_block_scan(
     offset /= 2;
     __syncthreads();
     if (index < d) {
-      size_t a = offset * (2 * index + 1) - 1;
-      size_t b = offset * (2 * index + 2) - 1;
+      size_t a = offset_array_index(offset * (2 * index + 1) - 1);
+      size_t b = offset_array_index(offset * (2 * index + 2) - 1);
       num_t t = s_temp[a];
       s_temp[a] = s_temp[b];
       s_temp[b] += t;
@@ -81,10 +91,10 @@ void blelloch_block_scan(
 
   // Copy results into global memory
   if (global_index * 2 < length) {
-    g_output[global_index * 2] = s_temp[index * 2];
+    g_output[global_index * 2] = s_temp[offset_array_index(index * 2)];
   }
   if (global_index * 2 + 1 < length) {
-    g_output[global_index * 2 + 1] = s_temp[index * 2 + 1];
+    g_output[global_index * 2 + 1] = s_temp[offset_array_index(index * 2 + 1)];
   }
 }
 
