@@ -99,13 +99,52 @@ void add_block_scan_ends(
   }
 }
 
+// Perform level 1 scan on individual blocks of size `BLOCK_SIZE * 2`
+void level1_scan(
+    const num_t *g_input,
+    num_t *g_output,
+    const size_t length,
+    num_t *g_block_ends,
+    const size_t num_blocks) {
+  blelloch_block_scan<<<num_blocks, BLOCK_SIZE>>>(
+      g_input, g_output, g_block_ends, length);
+  CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
+}
+
+// Perform level 2 scan on groups of blocks where blocks are of size
+// `BLOCK_SIZE * 2` and the groups are of size `BLOCK_SIZE * 2`
+void level2_scan(
+    const num_t *g_input,
+    num_t *g_output,
+    const size_t length,
+    num_t *g_block_ends,
+    const size_t num_blocks) {
+
+  // Perform level 1 scan first
+  level1_scan(g_input, g_output, length, g_block_ends, num_blocks);
+
+  // Perform prefix sum of block scan ends
+  size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
+  blelloch_block_scan<<<ends_num_blocks, BLOCK_SIZE>>>(
+      g_block_ends, g_block_ends, NULL, num_blocks);
+  cudaDeviceSynchronize();
+  CUDA_ERROR(
+      cudaGetLastError(), "Couldn't perform block scan on block ends");
+
+  // Add the block ends to the output
+  add_block_scan_ends<<<num_blocks * 2, BLOCK_SIZE>>>(
+      g_output, g_block_ends, length);
+  CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends");
+}
+
 // Performs all prefix sum on `input` and stores the result in `output` in
 // parallel on a GPU
 // Assumes both `input` and `output` are allocated with size `length`
 // Returns the time it took to run the scan
-double scan(const num_t *input, num_t *output, size_t length) {
+double scan(const num_t *input, num_t *output, const size_t length) {
   cudaError_t err;
   size_t array_size = sizeof(num_t) * length;
+  size_t num_blocks = 1 + (length - 1) / (BLOCK_SIZE * 2);
 
   // Set up input on device
   num_t *g_input = NULL;
@@ -119,47 +158,25 @@ double scan(const num_t *input, num_t *output, size_t length) {
   err = cudaMalloc((void **)&g_output, array_size);
   CUDA_ERROR(err, "Couldn't allocate memory for output on device");
 
+  // Create array for block ends
+  num_t *g_block_ends = NULL;
+  err = cudaMalloc((void**)&g_block_ends, sizeof(num_t) * num_blocks);
+  CUDA_ERROR(err, "Couldn't allocated memory for scan_ends");
+
   // Setup timing kernels
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
   cudaEventRecord(start, 0);
 
+  // Perform the scan
   if (length <= BLOCK_SIZE * 2) {
-    blelloch_block_scan<<<1, BLOCK_SIZE>>>(g_input, g_output, NULL, length);
-    CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
+    level1_scan(g_input, g_output, length, NULL, num_blocks);
   } else if (length <= BLOCK_SIZE * BLOCK_SIZE * 4) {
-    size_t num_blocks = 1 + (length - 1) / (BLOCK_SIZE * 2);
-
-    // Create array for block ends
-    num_t *g_block_ends = NULL;
-    err = cudaMalloc((void**)&g_block_ends, sizeof(num_t) * num_blocks);
-    CUDA_ERROR(err, "Couldn't allocated memory for scan_ends");
-
-    // Perform block scan on individual blocks of the input
-    blelloch_block_scan<<<num_blocks, BLOCK_SIZE>>>(
-        g_input, g_output, g_block_ends, length);
-    cudaDeviceSynchronize();
-    CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
-
-    // Perform prefix sum of block scan ends
-    size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
-    blelloch_block_scan<<<ends_num_blocks, BLOCK_SIZE>>>(
-        g_block_ends, g_block_ends, NULL, num_blocks);
-    cudaDeviceSynchronize();
-    CUDA_ERROR(
-        cudaGetLastError(), "Couldn't perform block scan on block ends");
-
-    // Add the block ends to the output
-    add_block_scan_ends<<<num_blocks * 2, BLOCK_SIZE>>>(
-        g_output, g_block_ends, length);
-    CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends");
-
-    // Free device allocated memory
-    err = cudaFree(g_block_ends);
-    CUDA_ERROR(err, "Couldn't free block scan ends on host");
+    level2_scan(g_input, g_output, length, g_block_ends, num_blocks);
   } else {
-    // TODO: Implement
+    fprintf(stderr, "Couldn't handle array of size %lld\n", length);
+    exit(1);
   }
 
   // Stop timing kernels
@@ -179,6 +196,8 @@ double scan(const num_t *input, num_t *output, size_t length) {
   CUDA_ERROR(err, "Couldn't free input on host");
   err = cudaFree(g_output);
   CUDA_ERROR(err, "Couldn't free output on host");
+  err = cudaFree(g_block_ends);
+  CUDA_ERROR(err, "Couldn't free block scan ends on host");
 
   return (double)elapsed_time_ms;
 }
