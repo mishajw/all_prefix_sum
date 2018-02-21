@@ -16,7 +16,7 @@
 
 #define GLOBAL_INDEX blockIdx.x * blockDim.x + threadIdx.x
 
-#define BLOCK_SIZE 1024
+#define BLOCK_SIZE ((size_t)1024)
 
 // The size of the array to test on
 static const size_t ARRAY_SIZE = 1000;
@@ -127,14 +127,38 @@ void level2_scan(
   size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
   blelloch_block_scan<<<ends_num_blocks, BLOCK_SIZE>>>(
       g_block_ends, g_block_ends, NULL, num_blocks);
-  cudaDeviceSynchronize();
   CUDA_ERROR(
       cudaGetLastError(), "Couldn't perform block scan on block ends");
 
   // Add the block ends to the output
   add_block_scan_ends<<<num_blocks * 2, BLOCK_SIZE>>>(
       g_output, g_block_ends, length);
-  CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends");
+  CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends for level 2");
+}
+
+// Perform level 3 scan on groups of groups of blocks where each is of size
+// `BLOCK_SIZE * 2`
+void level3_scan(
+    const num_t *g_input,
+    num_t *g_output,
+    const size_t length,
+    num_t *g_block_ends,
+    const size_t num_blocks,
+    num_t *g_block_ends_ends,
+    const size_t ends_num_blocks) {
+
+  // Perform level 1 scan first
+  level1_scan(g_input, g_output, length, g_block_ends, num_blocks);
+
+  // Perform full level 2 scan on block ends
+  level2_scan(
+      g_block_ends, g_block_ends, num_blocks,
+      g_block_ends_ends, ends_num_blocks);
+
+  // Add the block ends to the output
+  add_block_scan_ends<<<num_blocks * 2, BLOCK_SIZE>>>(
+      g_output, g_block_ends, length);
+  CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends for level 3");
 }
 
 // Performs all prefix sum on `input` and stores the result in `output` in
@@ -145,6 +169,7 @@ double scan(const num_t *input, num_t *output, const size_t length) {
   cudaError_t err;
   size_t array_size = sizeof(num_t) * length;
   size_t num_blocks = 1 + (length - 1) / (BLOCK_SIZE * 2);
+  size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
 
   // Set up input on device
   num_t *g_input = NULL;
@@ -163,6 +188,11 @@ double scan(const num_t *input, num_t *output, const size_t length) {
   err = cudaMalloc((void**)&g_block_ends, sizeof(num_t) * num_blocks);
   CUDA_ERROR(err, "Couldn't allocated memory for scan_ends");
 
+  // Create array for the ends of block ends
+  num_t *g_block_ends_ends = NULL;
+  err = cudaMalloc((void**)&g_block_ends_ends, sizeof(num_t) * ends_num_blocks);
+  CUDA_ERROR(err, "Couldn't allocated memory for scan_ends");
+
   // Setup timing kernels
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -174,6 +204,11 @@ double scan(const num_t *input, num_t *output, const size_t length) {
     level1_scan(g_input, g_output, length, NULL, num_blocks);
   } else if (length <= BLOCK_SIZE * BLOCK_SIZE * 4) {
     level2_scan(g_input, g_output, length, g_block_ends, num_blocks);
+  } else if (length <= BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE * 8) {
+    level3_scan(
+        g_input, g_output, length,
+        g_block_ends, num_blocks,
+        g_block_ends_ends, ends_num_blocks);
   } else {
     fprintf(stderr, "Couldn't handle array of size %lld\n", length);
     exit(1);
