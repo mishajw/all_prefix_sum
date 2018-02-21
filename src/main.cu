@@ -279,10 +279,8 @@ int main() {
   printf("Sequential time: %f ms\n", sequential_time_elapsed_ms);
   printf("Parallel time: %f ms\n", parallel_time_elapsed_ms);
   printf(
-      "Speed up: %f%\n",
-      ((parallel_time_elapsed_ms - sequential_time_elapsed_ms)
-       / (sequential_time_elapsed_ms))
-      * 100);
+      "Speed up: %f times\n",
+      sequential_time_elapsed_ms / parallel_time_elapsed_ms);
 
   free(input);
   free(truth_output);
