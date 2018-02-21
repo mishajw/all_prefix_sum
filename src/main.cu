@@ -19,7 +19,7 @@
 #define BLOCK_SIZE ((size_t)1024)
 
 // The size of the array to test on
-static const size_t ARRAY_SIZE = 1000;
+static const size_t ARRAY_SIZE = 10000000;
 
 typedef int32_t num_t;
 
