@@ -25,7 +25,10 @@ run: build
 	$(executable_path) $(args)
 
 remote-build: remote-deploy
-	ssh ${remote_host} "cd $(remote_path) && $(MAKE) build"
+	ssh ${remote_host} " \
+		module load cuda && \
+		cd $(remote_path) && \
+		$(MAKE) build"
 
 remote-run: remote-deploy
 	ssh ${remote_host} " \
