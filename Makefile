@@ -9,6 +9,7 @@ nvcc = nvcc
 nvcc_flags = \
 	-I${CUDA_HOME}/include \
 	-I${CUDA_HOME}/samples/common/inc \
+	--gpu-architecture=sm_52 \
 	--compiler-options -Wall,-Wextra \
 	-Xptxas -O3 \
 	-O3
