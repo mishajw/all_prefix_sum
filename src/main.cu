@@ -125,7 +125,8 @@ void add_block_scan_ends(
 // Performs all prefix sum on `input` and stores the result in `output` in
 // parallel on a GPU
 // Assumes both `input` and `output` are allocated with size `length`
-void scan(const num_t *input, num_t *output, size_t length) {
+// Returns the time it took to run the scan
+double scan(const num_t *input, num_t *output, size_t length) {
   cudaError_t err;
   size_t array_size = sizeof(num_t) * length;
 
@@ -140,6 +141,12 @@ void scan(const num_t *input, num_t *output, size_t length) {
   num_t *g_output = NULL;
   err = cudaMalloc((void **)&g_output, array_size);
   CUDA_ERROR(err, "Couldn't allocate memory for output on device");
+
+  // Setup timing kernels
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+  cudaEventRecord(start, 0);
 
   if (length <= BLOCK_SIZE * 2) {
     blelloch_block_scan<<<1, BLOCK_SIZE>>>(g_input, g_output, length);
@@ -180,24 +187,44 @@ void scan(const num_t *input, num_t *output, size_t length) {
     // TODO: Implement
   }
 
+  // Stop timing kernels
+  cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+  float elapsed_time_ms;
+  cudaEventElapsedTime(&elapsed_time_ms, start, stop);
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
+
   // Copy results to host
   err = cudaMemcpy(output, g_output, array_size, cudaMemcpyDeviceToHost);
   CUDA_ERROR(err, "Couldn't copy output to host");
 
   // Free device allocated memory
   err = cudaFree(g_input);
-  CUDA_ERROR(err, "Couldn't free input on host")
+  CUDA_ERROR(err, "Couldn't free input on host");
   err = cudaFree(g_output);
-  CUDA_ERROR(err, "Couldn't free output on host")
+  CUDA_ERROR(err, "Couldn't free output on host");
+
+  return (double)elapsed_time_ms;
 }
 
 // Performs all prefix sum on `input` and stores the result in `output`
 // sequentially on the CPU
 // Assumes both `input` and `output` are allocated with size `length`
-void sequential_scan(const num_t *input, num_t *output, size_t length) {
+// Returns the time it took to run the scan
+float sequential_scan(const num_t *input, num_t *output, size_t length) {
+  // Start timer for sequential scan
+  StopWatchInterface *sequential_timer = NULL;
+  sdkCreateTimer(&sequential_timer);
+  sdkStartTimer(&sequential_timer);
+
   for (size_t i = 1; i < length; i++) {
     output[i] = output[i - 1] + input[i - 1];
   }
+
+  // Stop timers for sequential scan
+  sdkStopTimer(&sequential_timer);
+  return sdkGetTimerValue(&sequential_timer);
 }
 
 // Fills the array `array` with `length` random values from 0-9 inclusive
@@ -235,29 +262,12 @@ int main() {
   // Set up the output for the parallel function
   num_t *output = (num_t *)malloc(sizeof(num_t) * ARRAY_SIZE);
 
-  // Start timer for sequential scan
-  StopWatchInterface *sequential_timer = NULL;
-  sdkCreateTimer(&sequential_timer);
-  sdkStartTimer(&sequential_timer);
-
   // Run the sequential scan
-  sequential_scan(input, truth_output, ARRAY_SIZE);
-
-  // Stop timers for sequential scan
-  sdkStopTimer(&sequential_timer);
-  double sequential_time_elapsed_ms = sdkGetTimerValue(&sequential_timer);
-
-  // Start timer for parallel scan
-  StopWatchInterface *parallel_timer = NULL;
-  sdkCreateTimer(&parallel_timer);
-  sdkStartTimer(&parallel_timer);
+  double sequential_time_elapsed_ms = sequential_scan(
+      input, truth_output, ARRAY_SIZE);
 
   // Run the parallel scan
-  scan(input, output, ARRAY_SIZE);
-
-  // Stop timers for parallel scan
-  sdkStopTimer(&parallel_timer);
-  double parallel_time_elapsed_ms = sdkGetTimerValue(&parallel_timer);
+  double parallel_time_elapsed_ms = scan(input, output, ARRAY_SIZE);
 
   // Compare solutions
   bool are_equal = print_array_equality(truth_output, output, ARRAY_SIZE);
