@@ -168,6 +168,10 @@ void scan(const num_t *input, num_t *output, size_t length) {
     add_block_scan_ends<<<num_blocks, BLOCK_SIZE>>>(
         g_output, g_block_scan_ends, length);
     CUDA_ERROR(cudaGetLastError(), "Couldn't add block scan ends");
+
+    // Free device allocated memory
+    err = cudaFree(g_block_scan_ends);
+    CUDA_ERROR(err, "Couldn't free block scan ends on host");
   } else {
     // TODO: Implement
   }
@@ -175,6 +179,12 @@ void scan(const num_t *input, num_t *output, size_t length) {
   // Copy results to host
   err = cudaMemcpy(output, g_output, array_size, cudaMemcpyDeviceToHost);
   CUDA_ERROR(err, "Couldn't copy output to host");
+
+  // Free device allocated memory
+  err = cudaFree(g_input);
+  CUDA_ERROR(err, "Couldn't free input on host")
+  err = cudaFree(g_output);
+  CUDA_ERROR(err, "Couldn't free output on host")
 }
 
 // Performs all prefix sum on `input` and stores the result in `output`
@@ -235,6 +245,10 @@ int main() {
   if (are_equal) {
     printf("Success!\n");
   }
+
+  free(input);
+  free(truth_output);
+  free(output);
 
   return are_equal ? 0 : 1;
 }
