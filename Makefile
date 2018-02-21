@@ -6,7 +6,12 @@ srcs = $(wildcard $(src_dir)/*.cu)
 executable_path = $(bin_dir)/$(project)
 
 nvcc = nvcc
-nvcc_flags = -I${CUDA_HOME}/include -I${CUDA_HOME}/samples/common/inc
+nvcc_flags = \
+	-I${CUDA_HOME}/include \
+	-I${CUDA_HOME}/samples/common/inc \
+	--compiler-options -Wall,-Wextra \
+	-Xptxas -O3 \
+	-O3
 
 remote_host ?= cca-lg04-072
 remote_path ?= ~/src/all_prefix_sum
