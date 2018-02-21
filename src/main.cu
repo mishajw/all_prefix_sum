@@ -1,3 +1,44 @@
+/*
+ * Name: Misha Wagner
+ * Student ID: 1436049
+ *
+ * Achieved:
+ *  - Block scan
+ *  - Full scan up to size (1024 * 2)^3 == 8589934592
+ *    - With block size of 128, this becomes (128 * 2)^3 == 16777216
+ *    - Still larger than 10 million and provides speed up, so this is used
+ *  - Bank conflict avoidance optimisation (BCAO)
+ *
+ * Times in milliseconds:
+ *                            bs=1024     bs=128
+ *  - Block scan, no BCAO:    3.19        2.22
+ *  - Block scan, BCAO:       3.40        2.06
+ *  - Full scan, no BCAO:     4.16        3.22
+ *  - Full scan, BCAO:        4.36        3.02
+ *  - Sequential scan:        22.94
+ *
+ * Used lab machine with:
+ *  - GeForce GTX 960
+ *  - Intel i5-6500 @ 3.20GHz
+ *
+ * Notes:
+ *  - Only extra optimisation was reducing the block size to 128.
+ *  - Interestingly, BCAO made the run time worse when used with block size
+ *  1024, and only improved the run time when a smaller block size was used.
+ *  - Implementation is discussed in function documentation and implementation
+ *  documentation, but the general structure is:
+ *    1) Create random input array.
+ *    2) Create ground truth with sequential scan.
+ *    3) Run parallel scan.
+ *    4) Compare output of sequential scan with parallel scan.
+ *  - Compiler flags were:
+ *    - `--gpu-architecture=sm_52` to enforce GPU architecture so we can use
+      grid sizes of more than 65536 and therefore reduce block size to 128.
+ *    - `--compiler-options -Wall,-Wextra` to reduce chance of bugs.
+ *    - `-Xptxas -O3` to optimize GPU code.
+ *    - `-O3` to optimize host code.
+ */
+
 #include <stdio.h>
 #include <inttypes.h>
 
