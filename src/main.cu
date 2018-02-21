@@ -16,7 +16,7 @@
 
 #define GLOBAL_INDEX blockIdx.x * blockDim.x + threadIdx.x
 
-#define BLOCK_SIZE ((size_t)1024)
+#define BLOCK_SIZE ((size_t)128)
 
 // `#define`s for addessing shared memory bank conflicts
 #define NUM_BANKS 32
