@@ -63,7 +63,7 @@
 #define NUM_BANKS 32
 #define LOG_NUM_BANKS 5
 #define OFFSET_ARRAY_INDEX(index) \
-  ((index) >> NUM_BANKS + (index) >> (2 * LOG_NUM_BANKS))
+  (((index) >> LOG_NUM_BANKS) + ((index) >> (2 * LOG_NUM_BANKS)))
 
 // The size of the array to test on
 static const size_t ARRAY_SIZE = 10000000;
@@ -75,19 +75,19 @@ typedef int32_t num_t;
 __global__
 void blelloch_block_scan(
     const num_t *g_input, num_t *g_output, num_t *g_block_ends, size_t length) {
-  __shared__ num_t s_temp[BLOCK_SIZE * 2];
+  __shared__ num_t s_temp[BLOCK_SIZE * 4];
   size_t global_index = GLOBAL_INDEX;
   size_t index = threadIdx.x;
   size_t offset = 1;
 
   // Copy global memory into shared
   if (global_index * 2 < length) {
-    size_t i = global_index * 2;
-    s_temp[index * 2] = g_input[i + OFFSET_ARRAY_INDEX(i)];
+    size_t i = index * 2;
+    s_temp[i + OFFSET_ARRAY_INDEX(i)] = g_input[global_index * 2];
   }
   if (global_index * 2 + 1 < length) {
-    size_t i = global_index * 2 + 1;
-    s_temp[index * 2 + 1] = g_input[i + OFFSET_ARRAY_INDEX(i)];
+    size_t i = index * 2 + 1;
+    s_temp[i + OFFSET_ARRAY_INDEX(i)] = g_input[global_index * 2 + 1];
   }
 
   // Up sweep
