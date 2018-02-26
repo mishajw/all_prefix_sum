@@ -57,7 +57,7 @@
 
 #define GLOBAL_INDEX blockIdx.x * blockDim.x + threadIdx.x
 
-#define BLOCK_SIZE ((size_t)128)
+#define BLOCK_SIZE ((uint32_t)128)
 
 // `#define`s for addessing shared memory bank conflicts
 #define NUM_BANKS 32
@@ -66,7 +66,7 @@
   (((index) >> LOG_NUM_BANKS) + ((index) >> (2 * LOG_NUM_BANKS)))
 
 // The size of the array to test on
-static const size_t ARRAY_SIZE = 10000000;
+static const uint32_t ARRAY_SIZE = 10000000;
 
 typedef int32_t num_t;
 
@@ -74,29 +74,29 @@ typedef int32_t num_t;
 // Also stores the sum of a total block in the `g_block_ends`
 __global__
 void blelloch_block_scan(
-    const num_t *g_input, num_t *g_output, num_t *g_block_ends, size_t length) {
+    const num_t *g_input, num_t *g_output, num_t *g_block_ends, uint32_t length) {
   __shared__ num_t s_temp[BLOCK_SIZE * 4];
-  size_t global_index = GLOBAL_INDEX;
-  size_t index = threadIdx.x;
-  size_t offset = 1;
+  uint32_t global_index = GLOBAL_INDEX;
+  uint32_t index = threadIdx.x;
+  uint32_t offset = 1;
 
   // Copy global memory into shared
   if (global_index * 2 < length) {
-    size_t i = index * 2;
+    uint32_t i = index * 2;
     s_temp[i + OFFSET_ARRAY_INDEX(i)] = g_input[global_index * 2];
   }
   if (global_index * 2 + 1 < length) {
-    size_t i = index * 2 + 1;
+    uint32_t i = index * 2 + 1;
     s_temp[i + OFFSET_ARRAY_INDEX(i)] = g_input[global_index * 2 + 1];
   }
 
   // Up sweep
-  for (size_t d = BLOCK_SIZE; d > 0; d /= 2) {
+  for (uint32_t d = BLOCK_SIZE; d > 0; d /= 2) {
     __syncthreads();
 
     if (index < d) {
-      size_t a = offset * (2 * index + 1) - 1;
-      size_t b = offset * (2 * index + 2) - 1;
+      uint32_t a = offset * (2 * index + 1) - 1;
+      uint32_t b = offset * (2 * index + 2) - 1;
       a += OFFSET_ARRAY_INDEX(a);
       b += OFFSET_ARRAY_INDEX(b);
       s_temp[b] += s_temp[a];
@@ -107,7 +107,7 @@ void blelloch_block_scan(
 
   // Reset last element
   if (index == 0) {
-    size_t i = BLOCK_SIZE * 2 - 1;
+    uint32_t i = BLOCK_SIZE * 2 - 1;
     i += OFFSET_ARRAY_INDEX(i);
     // Save the block end
     if (g_block_ends != NULL) {
@@ -118,12 +118,12 @@ void blelloch_block_scan(
   }
 
   // Down sweep
-  for (size_t d = 1; d < BLOCK_SIZE * 2; d *= 2) {
+  for (uint32_t d = 1; d < BLOCK_SIZE * 2; d *= 2) {
     offset /= 2;
     __syncthreads();
     if (index < d) {
-      size_t a = offset * (2 * index + 1) - 1;
-      size_t b = offset * (2 * index + 2) - 1;
+      uint32_t a = offset * (2 * index + 1) - 1;
+      uint32_t b = offset * (2 * index + 2) - 1;
       a += OFFSET_ARRAY_INDEX(a);
       b += OFFSET_ARRAY_INDEX(b);
       num_t t = s_temp[a];
@@ -136,11 +136,11 @@ void blelloch_block_scan(
 
   // Copy results into global memory
   if (global_index * 2 < length) {
-    size_t i = index * 2;
+    uint32_t i = index * 2;
     g_output[global_index * 2] = s_temp[i + OFFSET_ARRAY_INDEX(i)];
   }
   if (global_index * 2 + 1 < length) {
-    size_t i = index * 2 + 1;
+    uint32_t i = index * 2 + 1;
     g_output[global_index * 2 + 1] = s_temp[i + OFFSET_ARRAY_INDEX(i)];
   }
 }
@@ -148,9 +148,9 @@ void blelloch_block_scan(
 // Add the block scan ends back onto the original array
 __global__
 void add_block_scan_ends(
-    num_t *g_input, const num_t *g_block_ends, size_t length) {
+    num_t *g_input, const num_t *g_block_ends, uint32_t length) {
 
-  size_t global_index = GLOBAL_INDEX;
+  uint32_t global_index = GLOBAL_INDEX;
   if (global_index < length) {
     g_input[global_index] += g_block_ends[global_index / (BLOCK_SIZE * 2)];
   }
@@ -160,9 +160,9 @@ void add_block_scan_ends(
 void level1_scan(
     const num_t *g_input,
     num_t *g_output,
-    const size_t length,
+    const uint32_t length,
     num_t *g_block_ends,
-    const size_t num_blocks) {
+    const uint32_t num_blocks) {
   blelloch_block_scan<<<num_blocks, BLOCK_SIZE>>>(
       g_input, g_output, g_block_ends, length);
   CUDA_ERROR(cudaGetLastError(), "Couldn't perform block scan");
@@ -173,15 +173,15 @@ void level1_scan(
 void level2_scan(
     const num_t *g_input,
     num_t *g_output,
-    const size_t length,
+    const uint32_t length,
     num_t *g_block_ends,
-    const size_t num_blocks) {
+    const uint32_t num_blocks) {
 
   // Perform level 1 scan first
   level1_scan(g_input, g_output, length, g_block_ends, num_blocks);
 
   // Perform prefix sum of block scan ends
-  size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
+  uint32_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
   blelloch_block_scan<<<ends_num_blocks, BLOCK_SIZE>>>(
       g_block_ends, g_block_ends, NULL, num_blocks);
   CUDA_ERROR(
@@ -198,11 +198,11 @@ void level2_scan(
 void level3_scan(
     const num_t *g_input,
     num_t *g_output,
-    const size_t length,
+    const uint32_t length,
     num_t *g_block_ends,
-    const size_t num_blocks,
+    const uint32_t num_blocks,
     num_t *g_block_ends_ends,
-    const size_t ends_num_blocks) {
+    const uint32_t ends_num_blocks) {
 
   // Perform level 1 scan first
   level1_scan(g_input, g_output, length, g_block_ends, num_blocks);
@@ -222,11 +222,11 @@ void level3_scan(
 // parallel on a GPU
 // Assumes both `input` and `output` are allocated with size `length`
 // Returns the time it took to run the scan
-double scan(const num_t *input, num_t *output, const size_t length) {
+double scan(const num_t *input, num_t *output, const uint32_t length) {
   cudaError_t err;
-  size_t array_size = sizeof(num_t) * length;
-  size_t num_blocks = 1 + (length - 1) / (BLOCK_SIZE * 2);
-  size_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
+  uint32_t array_size = sizeof(num_t) * length;
+  uint32_t num_blocks = 1 + (length - 1) / (BLOCK_SIZE * 2);
+  uint32_t ends_num_blocks = 1 + (length - 1) / (BLOCK_SIZE * BLOCK_SIZE);
 
   // Set up input on device
   num_t *g_input = NULL;
@@ -267,7 +267,7 @@ double scan(const num_t *input, num_t *output, const size_t length) {
         g_block_ends, num_blocks,
         g_block_ends_ends, ends_num_blocks);
   } else {
-    fprintf(stderr, "Couldn't handle array of size %ld\n", length);
+    fprintf(stderr, "Couldn't handle array of size %d\n", length);
     exit(1);
   }
 
@@ -298,13 +298,13 @@ double scan(const num_t *input, num_t *output, const size_t length) {
 // sequentially on the CPU
 // Assumes both `input` and `output` are allocated with size `length`
 // Returns the time it took to run the scan
-float sequential_scan(const num_t *input, num_t *output, size_t length) {
+float sequential_scan(const num_t *input, num_t *output, uint32_t length) {
   // Start timer for sequential scan
   StopWatchInterface *sequential_timer = NULL;
   sdkCreateTimer(&sequential_timer);
   sdkStartTimer(&sequential_timer);
 
-  for (size_t i = 1; i < length; i++) {
+  for (uint32_t i = 1; i < length; i++) {
     output[i] = output[i - 1] + input[i - 1];
   }
 
@@ -314,22 +314,22 @@ float sequential_scan(const num_t *input, num_t *output, size_t length) {
 }
 
 // Fills the array `array` with `length` random values from 0-9 inclusive
-void fill_random_array(num_t *array, size_t length) {
-  for (size_t i = 0; i < length; i++) {
+void fill_random_array(num_t *array, uint32_t length) {
+  for (uint32_t i = 0; i < length; i++) {
     array[i] = rand() % 10;
   }
 }
 
 // Print how two arrays `a` and `b` differ, up to some length `length`
 // Returns true if the arrays are equal, and false otherwise
-bool print_array_equality(num_t *a, num_t *b, size_t length) {
+bool print_array_equality(num_t *a, num_t *b, uint32_t length) {
   bool are_equal = true;
 
-  for (size_t i = 0; i < length; i++) {
+  for (uint32_t i = 0; i < length; i++) {
     if (a[i] != b[i]) {
       are_equal = false;
       printf(
-          "Arrays differ at index %ld, with values %d and %d\n", i, a[i], b[i]);
+          "Arrays differ at index %d, with values %d and %d\n", i, a[i], b[i]);
     }
   }
 
