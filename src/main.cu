@@ -11,10 +11,10 @@
  *
  * Times in milliseconds:
  *                            bs=1024     bs=128
- *  - Block scan, no BCAO:    3.19        2.22
- *  - Block scan, BCAO:       3.40        2.06
- *  - Full scan, no BCAO:     4.16        3.22
- *  - Full scan, BCAO:        4.36        3.02
+ *  - Block scan, no BCAO:    3.23        2.22
+ *  - Block scan, BCAO:       3.76        1.73
+ *  - Full scan, no BCAO:     4.24        3.26
+ *  - Full scan, BCAO:        4.01        2.78
  *  - Sequential scan:        22.94
  *
  * Used lab machine with:
