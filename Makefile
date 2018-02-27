@@ -17,11 +17,11 @@ nvcc_flags = \
 remote_host ?= cca-lg04-072
 remote_path ?= ~/src/all_prefix_sum
 
-$(bin_dir):
-	@mkdir -p $(bin_dir)
-
 $(executable_path): $(srcs) | $(bin_dir)
 	$(nvcc) $(nvcc_flags) -o $@ $^
+
+$(bin_dir):
+	@mkdir -p $(bin_dir)
 
 .PHONY: build run remote-build remote-run remote-deploy
 
